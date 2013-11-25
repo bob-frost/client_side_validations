@@ -3,6 +3,8 @@ module ClientSideValidations::ActionView::Helpers
     class Error < StandardError; end
 
     def form_for(record, *args, &block)
+      raise ArgumentError, "Missing block" unless block_given?
+
       options = args.extract_options!
       if options[:validate]
 
@@ -20,12 +22,19 @@ module ClientSideValidations::ActionView::Helpers
 
       @validators = {}
 
+      # Capture the form_builder when it's passed to the block
+      captured_builder = nil
+      new_block = proc do |builder|
+        captured_builder = builder
+        block.call(builder)
+      end
+
       # Order matters here. Rails mutates the options object
       html_id = options[:html][:id] if options[:html]
-      form   = super(record, *(args << options), &block)
+      form   = super(record, *(args << options), &new_block)
       build_bound_validators(options)
       options[:id] = html_id if html_id
-      script = client_side_form_settings(object, options)
+      script = client_side_form_settings(object, options, captured_builder)
 
       # Because of the load order requirement above this sub is necessary
       # Would be nice to not do this
@@ -45,7 +54,7 @@ module ClientSideValidations::ActionView::Helpers
       end
     end
 
-    def apply_form_for_options!(object_or_array, options)
+    def apply_form_for_options!(record, object, options)
       super
       options[:html][:validate] = true if options[:validate]
     end
@@ -103,10 +112,8 @@ module ClientSideValidations::ActionView::Helpers
       end
     end
 
-    def client_side_form_settings(object, options)
+    def client_side_form_settings(object, options, builder)
       if options[:validate]
-        builder = options[:parent_builder]
-
         if options[:id]
           var_name = options[:id]
         else
